@@ -33,8 +33,11 @@
 
 : ${DNSMASQ_CONF_DIR:='/etc/dnsmasq.d'}
 
-dnsmasqCommand=( ${DNSMASQ:-/usr/sbin/dnsmasq} )
-qemuCommand=( ${QEMU:-qemu-system-${ARCH}} )
+: ${DNSMASQ:='/usr/sbin/dnsmasq'}
+: ${QEMU:="qemu-system-${ARCH}"}
+
+dnsmasqCommand=( ${DNSMASQ} )
+qemuCommand=( ${QEMU} )
 
 log () {
   case "${1}" in
