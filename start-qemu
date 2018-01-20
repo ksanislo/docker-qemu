@@ -1,15 +1,19 @@
 #!/bin/bash
+#
 # https://github.com/ksanislo/docker-qemu
 #
 
 : ${ENABLE_DEBUG:='N'}
 : ${ENABLE_USB:='Y'}
 : ${ENABLE_USBTABLET:='N'}
-: ${ENABLE_MACVLAN:='Y'}
-: ${ENABLE_BRIDGE:='N'}
-: ${ENABLE_BRIDGE_AUTO:='Y'}
-: ${ENABLE_DHCP:='N'}
+: ${ENABLE_MACVLAN:='Y'} # Attach to container NIC directly.
+: ${ENABLE_BRIDGE:='N'} # Override to get access to VNC console.
+: ${ENABLE_BRIDGE_AUTO:='Y'} # Attach to bridge automatically.
+: ${ENABLE_DHCP:=${ENABLE_BRIDGE}} # DHCP if we're using docker networking
+: ${SELECTED_NETWORK:=''} # CDIR to attach on if multiple interfaces exist
+: ${BRIDGE_IFACES:=''} # Interfaces to bridge, if AUTO is disabled above
 
+# The following mostly match their corresponding QEMU flags.
 : ${ARCH:=$(uname -m)}
 : ${CPU:='host'}
 : ${MACHINE:='pc'}
@@ -20,21 +24,28 @@
 : ${BOOT:='c'}
 : ${VGA:='std'}
 : ${DISPLAY:='vnc=:0'}
-: ${MONITOR:='/data/qemu.monitor'}
 
-: ${SDA:=''}
-: ${FDA:=''}
-: ${CDA:=''}
+# This freeform string is applied directly to the command line. You can use it
+# to configure any devices or drives that you need manually if you wish.
+: ${EXTRA:=''}
 
-: ${CDROM:=''}
+# This is required for balloon support, and is handy to put in the
+# mounted volume so you can issue commands from outside the container.
+# Use: socat - UNIX-CONNECT:/tmp/qemu.monitor for the command line.
+: ${MONITOR:='/tmp/qemu.monitor'}
 
-: ${BRIDGE_IFACES:=''}
-: ${SELECTED_NETWORK:=''}
+: ${SDA:=''} # SDA through SDZ are all available for VirtIO SCSI devices 
+: ${FDA:=''} # FDA/FDB are the two virtual floppy drives
+: ${CDA:=''} # CDA through CDD are the four IDE ports as CDROM interfaces
+: ${HDA:=''} # HDA through HDD are the four IDE ports as Hard Drives
 
-: ${DNSMASQ_CONF_DIR:='/etc/dnsmasq.d'}
+: ${CDROM:=''} # CDROM if you don't care where it lands.
 
 : ${DNSMASQ:='/usr/sbin/dnsmasq'}
+: ${DNSMASQ_CONF_DIR:='/etc/dnsmasq.d'}
+
 : ${QEMU:="qemu-system-${ARCH}"}
+: ${QEMU_BRIDGECONF:='/usr/local/etc/qemu/bridge.conf'}
 
 dnsmasqCommand=( ${DNSMASQ} )
 qemuCommand=( ${QEMU} )
@@ -273,17 +284,19 @@ configureNetworks () {
     # setup the bridge or macvtap (default) devices for bridging the VM and the
     # container
 
-    if [[ ${ENABLE_MACVLAN} == 1 ]]; then
+    if [[ ${ENABLE_BRIDGE} == 1 ]]; then
+      deviceID=$(setupBridge ${iface} "bridge")
+      bridgeName="bridge${deviceID}"
+      log "DEBUG" "bridgeName: ${bridgeName}"
+      mkdir -p ${QEMU_BRIDGECONF%/bridge.conf}
+      echo allow ${bridgeName} >> ${QEMU_BRIDGECONF}
+      qemuCommand+=( -netdev bridge,br=${bridgeName},id=net${i} )
+    elif [[ ${ENABLE_MACVLAN} == 1 ]]; then
       deviceID=($(setupBridge ${iface} "macvlan"))
       bridgeName="macvlan${deviceID}"
       log "DEBUG" "bridgeName: ${bridgeName}"
       let fd=${i}+3
       qemuCommand+=( -netdev tap,id=net${i},vhost=on,fd=${fd} ${fd}\<\>/dev/macvtap${deviceID} )
-    elif [[ ${ENABLE_BRIDGE} == 1 ]]; then
-      deviceID=$(setupBridge ${iface} "bridge")
-      bridgeName="bridge${deviceID}"
-      log "DEBUG" "bridgeName: ${bridgeName}"
-      qemuCommand+=( -netdev bridge,br=${bridgeName},id=net${i} )
     else # SLIRP Networking, FIXME can append ,hostfwd=tcp::$port-:$port,hostfwd=udp::$port-:$port
       qemuCommand+=( -netdev user,hostname=$(hostname),id=net${i} )
     fi
@@ -327,11 +340,12 @@ fi
 [[ ${ENABLE_USB} == 1 ]]       && qemuCommand+=( -usb  )
 [[ ${ENABLE_USBTABLET} == 1 ]] && qemuCommand+=( -device usb-tablet )
 [[ ! -z "${CDROM}" ]]          && qemuCommand+=( -${blkDevice,,} ${!blkDevice} )
+[[ ! -z "${EXTRA}" ]]          && qemuCommand+=( ${EXTRA} )
 
 # Map any block devices which have been defined in the following
 for blkDevice in ${!CD*} ${!FD*} ${!HD*} ${!SD*}; do
   [[ "${blkDevice}" == CD[A-D] ]] && [[ ! -z "${!blkDevice}" ]] && qemuCommand+=( -drive file=${!blkDevice},media=cdrom,index=$(idFromStr ${blkDevice}) )
-  [[ "${blkDevice}" == FD[AB] ]] && [[ ! -z "${!blkDevice}" ]] && qemuCommand+=( -${blkDevice,,} ${!blkDevice} )
+  [[ "${blkDevice}" == FD[AB] ]] && [[ ! -z "${!blkDevice}" ]] && qemuCommand+=( -drive file=${!blkDevice},if=floppy,index=$(idFromStr ${blkDevice}) )
   if [[ "${blkDevice}" == [HS]D[A-Z] ]] && [[ ! -z "${!blkDevice}" ]]; then
     if [[ "${blkDevice}" == HD[A-Z] ]]; then
       [[ $hasVirtIOBus != 1 ]] && qemuCommand+=( -device virtio-blk ) ; hasVirtIOBus=1
@@ -358,8 +372,8 @@ else
 fi
 
 DEFAULT_ROUTE=$(ip route | grep default | awk '{print $3}')
-
 configureNetworks
+ip route | grep -q default || ip route add 0.0.0.0/0 via ${DEFAULT_ROUTE}
 
 if [[ "${ENABLE_DHCP}" == 1 ]]; then
   # Hack for guest VMs complaining about "bad udp checksums in 5 packets"
@@ -382,7 +396,7 @@ if [[ "${ENABLE_DHCP}" == 1 ]]; then
   [[ -z $(hostname -d) ]] || dnsmasqCommand+=( --dhcp-option=option:domain-name,$(hostname -d) )
   log "INFO" "Lauching ${DNSMASQ}"
   log "DEBUG" "Command line: ${dnsmasqCommand[@]}"
-  eval exec ${dnsmasqCommand[@]}
+  eval ${dnsmasqCommand[@]}
 fi
 
 log "INFO" "Launching ${QEMU}"
