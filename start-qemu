@@ -156,7 +156,7 @@ getNonConflictingIP () {
 
     local i=$(atoi ${IP})
     #let "j=${i}^(1<<(32-${CIDR}))"
-    let "j=${i}+1" : # FIXME: DOING THIS BLINDLY IS BAD!
+    let "j=${i}+1" # FIXME: DOING THIS BLINDLY IS BAD!
     local newIP=$(itoa j)
 
     echo ${newIP} ${newCIDR}
