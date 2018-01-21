@@ -10,6 +10,8 @@
 : ${ENABLE_BRIDGE:='N'} # Override to get access to VNC console.
 : ${ENABLE_BRIDGE_AUTO:='Y'} # Attach to bridge automatically.
 : ${ENABLE_DHCP:=${ENABLE_BRIDGE}} # DHCP if we're using docker networking
+: ${ENABLE_VNC:=${ENABLE_BRIDGE}} # VNC console by default if we have a bridge
+: ${VNC_PORT:=5900}
 : ${SELECTED_NETWORK:=''} # CDIR to attach on if multiple interfaces exist
 : ${BRIDGE_IFACES:=''} # Interfaces to bridge, if AUTO is disabled above
 
@@ -149,10 +151,12 @@ getNonConflictingIP () {
     local IP="${1}"
     local CIDR="${2}"
 
-    let "newCIDR=${CIDR}-1"
+    #let "newCIDR=${CIDR}-1"
+    let "newCIDR=${CIDR}" # FIXME: DOING THIS BLINDLY IS BAD!
 
     local i=$(atoi ${IP})
-    let "j=${i}^(1<<(32-${CIDR}))"
+    #let "j=${i}^(1<<(32-${CIDR}))"
+    let "j=${i}+1" : # FIXME: DOING THIS BLINDLY IS BAD!
     local newIP=$(itoa j)
 
     echo ${newIP} ${newCIDR}
@@ -203,12 +207,14 @@ setupBridge () {
     mknod "/dev/${vtapdev}" c ${major} ${minor}
   fi
 
-  # get a new IP for the guest machine in a broader network broadcast domain
+  # get a new IP for the docker bridge
   if ! [[ -z ${IP} ]]; then
-    #newIP=($(getNonConflictingIP ${IP} ${CIDR}))
+    newIP=($(getNonConflictingIP ${IP} ${CIDR}))
     ip address del "${IP}/${CIDR}" dev "${iface}"
-    ip address add "${IP}/${CIDR}" dev "${bridgeName}"
-    #ip address add "${newIP[0]}/${newIP[1]}" dev "${bridgeName}"
+    #ip address add "${IP}/${CIDR}" dev "${bridgeName}"
+    ip address add "${newIP[0]}/${newIP[1]}" dev "${bridgeName}"
+    # Forward the VNC console to the new bridge IP.
+    [[ ${ENABLE_VNC} == 1 ]] && [[ ! -z "${VNC_PORT}" ]] && iptables -t nat -A PREROUTING -p tcp -d ${IP} --dport ${VNC_PORT} -j DNAT --to-destination ${newIP[0]}
   fi
 
   ip link set dev "${bridgeName}" up
@@ -342,7 +348,7 @@ fi
 [[ ! -z "${CDROM}" ]]          && qemuCommand+=( -${blkDevice,,} ${!blkDevice} )
 [[ ! -z "${EXTRA}" ]]          && qemuCommand+=( ${EXTRA} )
 
-# Map any block devices which have been defined in the following
+# Map any block devices which have been defined
 for blkDevice in ${!CD*} ${!FD*} ${!HD*} ${!SD*}; do
   [[ "${blkDevice}" == CD[A-D] ]] && [[ ! -z "${!blkDevice}" ]] && qemuCommand+=( -drive file=${!blkDevice},media=cdrom,index=$(idFromStr ${blkDevice}) )
   [[ "${blkDevice}" == FD[AB] ]] && [[ ! -z "${!blkDevice}" ]] && qemuCommand+=( -drive file=${!blkDevice},if=floppy,index=$(idFromStr ${blkDevice}) )
