@@ -32,7 +32,7 @@ docker run --rm -ti \
     -p 5900:5900 \
     ksanislo/qemu
 ```
-If everything worked, you should now be able to attach your [VNC viewer](https://www.realvnc.com/en/connect/download/viewer/) to vnc://<docker-host-ip-address>:5900, and install your new VM.
+If everything worked, you should now be able to attach your [VNC viewer](https://www.realvnc.com/en/connect/download/viewer/) to vnc://\<docker-host-ip-address\>:5900, and install your new VM.
 
 For windows, you will need to provide those VirtIO drivers from that virtual floppy before you can see the hard drives. Once the machine is up, make sure you install any other required drivers that you need and copy the contents of A:\ into the hard drive for later use.
 
