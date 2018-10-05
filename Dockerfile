@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY *.patch /qemu-patches/
 
 # https://www.qemu.org/download/#source
-ENV QEMU_VERSION 2.11.0
+ENV QEMU_VERSION 3.0.0
 
 RUN set -eux; \
 	\
@@ -59,7 +59,7 @@ RUN set -eux; \
 	; \
 	rm -rf /var/lib/apt/lists/*; \
 	\
-	wget -O qemu.tar.xz "https://download.qemu.org/qemu-2.11.0.tar.xz"; \
+	wget -O qemu.tar.xz "https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz"; \
 # TODO verify signature
 	mkdir /usr/src/qemu; \
 	tar -xf qemu.tar.xz -C /usr/src/qemu --strip-components=1; \

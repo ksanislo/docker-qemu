@@ -5,7 +5,7 @@ diff --git a/vl.c b/vl.c
 index 1ad1c04637..9e07fe1dbb 100644
 --- a/vl.c
 +++ b/vl.c
-@@ -1898,7 +1898,11 @@ void qemu_system_killed(int signal, pid_t pid)
+@@ -1762,7 +1762,11 @@ void qemu_system_killed(int signal, pid_t pid)
      /* Cannot call qemu_system_shutdown_request directly because
       * we are in a signal handler.
       */

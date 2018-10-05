@@ -1,6 +1,8 @@
 # Docker container ksanislo/qemu
 A performance oriented docker container for QEMU/KVM
 
+Based on https://github.com/tianon/dockerfiles/tree/master/qemu
+
 There are substantial descriptive comments about configuration in environment variables at the top of the start-qemu script. Look there for up-to-date info on everything that can be tuned, including enabling/disabling kvm or hax VM acceleration and alternate architectures for virtual machines.
 
 Installing and running Windows 7:
